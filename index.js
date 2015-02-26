@@ -35,17 +35,17 @@ function PubSub(config){
   this.internal = new EE();
   this._emit = this.emit;
   this.emit = this.fire;
-  this.on('removeListener', function (name) {
+  this.on('removeListener', function () {
     self.listeners--;
     if (self.listeners === 0) {
-      return self.unsubscribe(self.topic);
+      return self.unsubscribe();
     }
 
   });
-  this.on('newListener', function (name) {
+  this.on('newListener', function () {
     self.listeners++;
     if (self.listeners === 1) {
-      self.subscribable = self.subscribe(self.topic);
+      self.subscribable = self.subscribe();
     }
   });
   this.ready = this.maybeCreateTopic(this.topic);
@@ -78,6 +78,7 @@ PubSub.prototype.post = function (target, str, noParse, method) {
     sub = noParse;
     noParse = false;
   }
+  var aborting = false;
   return self.auth().then(function (token){
     var opts = url.parse(target);
     opts.headers = {
@@ -91,16 +92,21 @@ PubSub.prototype.post = function (target, str, noParse, method) {
         if (resp.statusCode > 299) {
           // console.log(opts);
           // console.log(str);
+          //console.log('aborting', aborting);
           return reject(resp.statusCode);
         }
         var data = [new Buffer('')];
         resp.on('error', function (e){
-          self.removeListener('abort', abortReq);
-          reject(e);
+          self.internal.removeListener('abort', abortReq);
+          if (aborting) {
+            fullfill();
+          } else {
+            reject(e);
+          }
         }).on('data', function (d){
           data.push(d);
         }).on('end', function () {
-          self.removeListener('abort', abortReq);
+          self.internal.removeListener('abort', abortReq);
           try {
             var result = noParse?true:JSON.parse(Buffer.concat(data).toString());
           } catch (e){
@@ -112,12 +118,16 @@ PubSub.prototype.post = function (target, str, noParse, method) {
         });
       }).on('error', function (e){
         self.internal.removeListener('abort', abortReq);
-        reject(e);
+        if (aborting) {
+          fullfill();
+        } else {
+          reject(e);
+        }
       });
       function abortReq(name){
-        if (name === sub) {
-          req.abort();
-        }
+        aborting = true;
+        //console.log('abort');
+        req.abort();
       }
       self.internal.on('abort', abortReq);
       req.end(str);
@@ -173,9 +183,10 @@ PubSub.prototype.fire = function (name, data) {
     }), true);
   });
 };
-PubSub.prototype.subscribe = function (name) {
+PubSub.prototype.subscribe = function () {
   var self = this;
   // console.log('subscribing', name);
+  var name = this.topic;
   var subscriptions = this.subscriptions;
   return this.ready.then(function () {
     // console.log('ready to subscribe');
@@ -183,14 +194,17 @@ PubSub.prototype.subscribe = function (name) {
       topic: self.project + '/' + name
     }));
   }).then(function (resp) {
-    // console.log('created')
     subscriptions[name] = resp.name;
     self.poll(name);
   });
 };
-PubSub.prototype.unsubscribe = function (name) {
+PubSub.prototype.unsubscribe = function () {
+  var name = this.topic;
   var sub = this.subscriptions[name];
   this.internal.emit('abort', sub);
+  if (!sub) {
+    return Promise.resolve();
+  }
   delete this.subscriptions[name];
   return this.post(delUrl + sub, void 0, true, 'delete');
 };
@@ -210,7 +224,9 @@ PubSub.prototype.poll = function (name, subsequent) {
     return this.subscribable.then(function (){
       return self.post(subPullUrl, data, sub);
     }).then(function (resp) {
-      // console.log(resp);
+      if (!resp) {
+        return;
+      }
       var ackId = resp.ackId;
       var msg = resp.pubsubEvent.message.data;
       msg = new Buffer(msg, 'base64');
