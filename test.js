@@ -1,5 +1,5 @@
 var data = require('./data.json');
-data.key = new Buffer(data.key);
+
 
 var PubSub = require('./index');
 var test = require('tape');

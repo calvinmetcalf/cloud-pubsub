@@ -22,11 +22,7 @@ function PubSub(config){
   EE.call(this);
   var self = this;
   this.project = config.project;
-  if(typeof config.key === 'string') {
-    this.key = fs.readFileSync(config.key);
-  } else if(Buffer.isBuffer(config.key)) {
-    this.key = config.key;
-  }
+  this.key = config.key;
   this.email = config.email;
   this.cache = new LRU({
     max: 500,
