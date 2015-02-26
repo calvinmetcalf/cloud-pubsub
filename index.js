@@ -249,7 +249,7 @@ PubSub.prototype.poll = function (name, subsequent) {
         return self.poll(name, true);
       });
     }, function (e) {
-      if (e.error.code === 500) {
+      if (e.error.code === 500 || e.error.code === 400) {
         return self.poll(name, true);
       } else {
         throw e;
