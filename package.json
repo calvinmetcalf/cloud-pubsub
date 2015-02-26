@@ -1,0 +1,20 @@
+{
+  "name": "cloud-pubsub",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "bluebird": "^2.9.12",
+    "google-auth2-service-account": "0.0.5",
+    "inherits": "^2.0.1",
+    "lru-cache": "^2.5.0"
+  },
+  "devDependencies": {
+    "tape": "^3.5.0"
+  }
+}
