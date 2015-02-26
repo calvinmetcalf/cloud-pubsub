@@ -89,12 +89,12 @@ PubSub.prototype.post = function (target, str, noParse, method) {
     return new Promise(function (fullfill, reject) {
       
       var req = https.request(opts, function (resp) {
-        if (resp.statusCode > 299) {
+        
           // console.log(opts);
           // console.log(str);
           //console.log('aborting', aborting);
-          return reject(resp.statusCode);
-        }
+          //return reject(resp.statusCode);
+        //}
         var data = [new Buffer('')];
         resp.on('error', function (e){
           self.internal.removeListener('abort', abortReq);
@@ -114,7 +114,15 @@ PubSub.prototype.post = function (target, str, noParse, method) {
             // console.log(opts);
             reject(e);
           }
-          fullfill(result);
+          if (resp.statusCode > 299) {
+            if (resp.statusCode === 404) {
+              reject(404);
+            }
+            //console.log(result);
+            reject(result);
+          } else {
+            fullfill(result);
+          }
         });
       }).on('error', function (e){
         self.internal.removeListener('abort', abortReq);
@@ -240,5 +248,11 @@ PubSub.prototype.poll = function (name, subsequent) {
         self._emit(msg.name, msg.data);
         return self.poll(name, true);
       });
+    }, function (e) {
+      if (e.error.code === 500) {
+        return self.poll(name, true);
+      } else {
+        throw e;
+      }
     });
 };
