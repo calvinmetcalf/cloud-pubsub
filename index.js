@@ -203,6 +203,7 @@ PubSub.prototype.subscribe = function () {
     }));
   }).then(function (resp) {
     subscriptions[name] = resp.name;
+    self.subscribable = Promise.resolve();
     self.poll(name);
   });
 };
@@ -216,7 +217,7 @@ PubSub.prototype.unsubscribe = function () {
   delete this.subscriptions[name];
   return this.post(delUrl + sub, void 0, true, 'delete');
 };
-PubSub.prototype.poll = function (name, subsequent) {
+PubSub.prototype.poll = function (name, subsequent, attempt) {
     var self = this;
     var sub = this.subscriptions[name];
     if (!sub) {
@@ -226,6 +227,7 @@ PubSub.prototype.poll = function (name, subsequent) {
         return Promise.reject(new TypeError('no such subscription'))
       }
     }
+    attempt = attempt || 0;
     var data = JSON.stringify({
       subscription: sub
     });
@@ -249,10 +251,17 @@ PubSub.prototype.poll = function (name, subsequent) {
         return self.poll(name, true);
       });
     }, function (e) {
-      if (e.error.code === 500 || e.error.code === 400) {
-        return self.poll(name, true);
-      } else {
+      var newAttempt = attempt + 1;
+      if (attempt > 10) {
         throw e;
       }
+      return sleep(50 << newAttempt).then(function () {
+        return self.poll(name, true, newAttempt);
+      });
     });
 };
+function sleep (number) {
+  return new Promise(function (fullfill) {
+    setTimeout(fullfill, number);
+  });
+}
