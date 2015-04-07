@@ -28,7 +28,7 @@ function PubSub(config){
     max: 500,
     maxAge: 1800 * 1000
   });
-  this.topic = config.topic || 'pubsub'; 
+  this.topic = config.topic || 'pubsub';
   this.subscriptions = {};
   this.topics = {};
   this.listeners = 0;
@@ -87,9 +87,9 @@ PubSub.prototype.post = function (target, str, noParse, method) {
     };
     opts.method = method || 'post';
     return new Promise(function (fullfill, reject) {
-      
+
       var req = https.request(opts, function (resp) {
-        
+
           // console.log(opts);
           // console.log(str);
           //console.log('aborting', aborting);
@@ -118,7 +118,10 @@ PubSub.prototype.post = function (target, str, noParse, method) {
             if (resp.statusCode === 404) {
               reject(404);
             }
-            //console.log(result);
+            if (result.error && result.error.message) {
+              var err = new Error(result.error.code + ' ' + result.error.message);
+              return reject(err);
+            }
             reject(result);
           } else {
             fullfill(result);
