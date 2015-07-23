@@ -118,6 +118,9 @@ PubSub.prototype.post = function (target, str, noParse, method) {
             if (resp.statusCode === 404) {
               reject(404);
             }
+            if (!result) {
+              return reject(new Error('status code was ' + resp.statusCode));
+            }
             if (result.error && result.error.message) {
               var err = new Error(result.error.code + ' ' + result.error.message);
               return reject(err);
