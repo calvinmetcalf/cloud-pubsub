@@ -1,7 +1,7 @@
 Cloud PubSub
 ===
 
-API for [google cloud pubsub](https://cloud.google.com/pubsub/v1beta1/).  Currently hitting version beta1. Constructor takes an object with these members
+API for [google cloud pubsub](https://cloud.google.com/pubsub/overview).  Currently hitting version v1. Constructor takes an object with these members
 
 - key: google service acount key
 - email: google service account client email
