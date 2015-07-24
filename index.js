@@ -1,21 +1,14 @@
 'use strict';
 var Promise = require('bluebird');
-var fs = require('fs');
 var auth = Promise.promisify(require('google-auth2-service-account').auth);
 var https = require('https');
 var scope = 'https://www.googleapis.com/auth/pubsub';
-var LRU = require('lru-cache');
-var topicUrl = 'https://www.googleapis.com/pubsub/v1beta1/topics';
-var publishUrl = 'https://www.googleapis.com/pubsub/v1beta1/topics/publish';
-var subPullUrl = 'https://www.googleapis.com/pubsub/v1beta1/subscriptions/pull';
-var subCreateUrl = 'https://www.googleapis.com/pubsub/v1beta1/subscriptions';
-var ackUrl = 'https://www.googleapis.com/pubsub/v1beta1/subscriptions/acknowledge';
-var delUrl = 'https://www.googleapis.com/pubsub/v1beta1/subscriptions/';
-var delTopicUrl = 'https://www.googleapis.com/pubsub/v1beta1/topics/';
+var LRU = require('age-cache');
+var baseurl = 'https://pubsub.googleapis.com/v1/';
 var url = require('url');
 var inherits = require('inherits');
 var EE = require('events').EventEmitter;
-
+var crypto = require('crypto');
 inherits(PubSub, EE);
 module.exports = PubSub;
 function PubSub(config){
@@ -73,9 +66,7 @@ PubSub.prototype.auth = function () {
 
 PubSub.prototype.post = function (target, str, noParse, method) {
   var self = this;
-  var sub;
   if (typeof noParse === 'string') {
-    sub = noParse;
     noParse = false;
   }
   var aborting = false;
@@ -108,21 +99,20 @@ PubSub.prototype.post = function (target, str, noParse, method) {
         }).on('end', function () {
           self.internal.removeListener('abort', abortReq);
           try {
-            var result = noParse?true:JSON.parse(Buffer.concat(data).toString());
+            var result = noParse ? true : JSON.parse(Buffer.concat(data).toString());
           } catch (e){
-            // console.log(data);
-            // console.log(opts);
-            reject(e);
+            reject(Buffer.concat(data).toString());
           }
           if (resp.statusCode > 299) {
             if (resp.statusCode === 404) {
+              console.log(Buffer.concat(data).toString());
               reject(404);
             }
             if (!result) {
               return reject(new Error('status code was ' + resp.statusCode));
             }
             if (result.error && result.error.message) {
-              var err = new Error(result.error.code + ' ' + result.error.message);
+              var err = new Error(Buffer.concat(data).toString());
               return reject(err);
             }
             reject(result);
@@ -138,7 +128,7 @@ PubSub.prototype.post = function (target, str, noParse, method) {
           reject(e);
         }
       });
-      function abortReq(name){
+      function abortReq(){
         aborting = true;
         //console.log('abort');
         req.abort();
@@ -153,7 +143,7 @@ PubSub.prototype.maybeCreateTopic = function (name) {
   if (this.topics[name]) {
     return Promise.resolve(true);
   }
-  return this.post(delTopicUrl + this.project + '/' + name, '', true, 'get').catch(function (error) {
+  return this.post(baseurl + 'projects/' + this.project + '/topics/' + name, '', true, 'get').catch(function (error) {
     if (error === 404) {
       return self.createTopic(name);
     }
@@ -163,13 +153,11 @@ PubSub.prototype.maybeCreateTopic = function (name) {
   });
 };
 PubSub.prototype.createTopic = function (name) {
-  return this.post(topicUrl, JSON.stringify({
-    name: this.project + '/' + name
-  }));
+  return this.post(baseurl + 'projects/' + this.project + '/topics/' + name, undefined, undefined, 'put');
 };
 PubSub.prototype.removeTopic = function (name) {
   this.topics[name] = false;
-  return this.post(delTopicUrl + '/topics/' + this.project + '/' + name, void 0, true, 'delete');
+  return this.post(baseurl + name, void 0, true, 'delete');
 };
 
 PubSub.prototype.fire = function (name, data) {
@@ -189,11 +177,10 @@ PubSub.prototype.fire = function (name, data) {
   this.ready.then(function () {
     return self.subscribable;
   }).then(function (){
-    return self.post(publishUrl, JSON.stringify({
-        topic: self.project + '/' + self.topic,
-        message: {
+    return self.post(baseurl + 'projects/' + self.project + '/topics/' + self.topic + ':publish', JSON.stringify({
+        messages: [{
           data: data
-        }
+        }]
     }), true);
   });
 };
@@ -204,9 +191,9 @@ PubSub.prototype.subscribe = function () {
   var subscriptions = this.subscriptions;
   return this.ready.then(function () {
     // console.log('ready to subscribe');
-    return self.post(subCreateUrl, JSON.stringify({
-      topic: self.project + '/' + name
-    }));
+    return self.post(baseurl + 'projects/' + self.project + '/subscriptions/' + self.topic + '_' + crypto.randomBytes(15).toString('base64').replace(/\/?\+?/g, ''), JSON.stringify({
+      topic: 'projects/' + self.project + '/topics/' + name
+    }), false, 'put');
   }).then(function (resp) {
     subscriptions[name] = resp.name;
     self.subscribable = Promise.resolve();
@@ -221,50 +208,56 @@ PubSub.prototype.unsubscribe = function () {
     return Promise.resolve();
   }
   delete this.subscriptions[name];
-  return this.post(delUrl + sub, void 0, true, 'delete');
+  return this.post(baseurl + sub, void 0, true, 'delete');
 };
 PubSub.prototype.poll = function (name, subsequent, attempt) {
-    var self = this;
-    var sub = this.subscriptions[name];
-    if (!sub) {
-      if (subsequent) {
-        return Promise.resolve('done');
-      } else {
-        return Promise.reject(new TypeError('no such subscription'))
-      }
+  var self = this;
+  var sub = this.subscriptions[name];
+  var max = JSON.stringify({
+    maxMessages: 10
+  });
+  if (!sub) {
+    if (subsequent) {
+      return Promise.resolve('done');
+    } else {
+      return Promise.reject(new TypeError('no such subscription'));
     }
-    attempt = attempt || 0;
-    var data = JSON.stringify({
-      subscription: sub
-    });
-    return this.subscribable.then(function (){
-      return self.post(subPullUrl, data, sub);
-    }).then(function (resp) {
-      if (!resp) {
-        return;
-      }
-      var ackId = resp.ackId;
-      var msg = resp.pubsubEvent.message.data;
-      msg = new Buffer(msg, 'base64');
-      msg = JSON.parse(msg.toString());
-      return self.post(ackUrl, JSON.stringify({
-        ackId: [
-          ackId
-        ],
-        subscription: sub
-      }), true).then(function (){
+  }
+  attempt = attempt || 0;
+  return this.subscribable.then(function (){
+    return self.post(baseurl + sub + ':pull', max, sub);
+  }).then(function (resp) {
+    if (!resp || !Array.isArray(resp.receivedMessages)) {
+      return self.poll(name, true);
+    }
+    return self.ack(resp.receivedMessages.map(function (item) {
+      return item.ackId;
+    }), sub).then(function () {
+      resp.receivedMessages.forEach(function (e) {
+        var msg = e.message.data;
+        msg = new Buffer(msg, 'base64');
+        msg = JSON.parse(msg.toString());
         self._emit(msg.name, msg.data);
-        return self.poll(name, true);
       });
-    }, function (e) {
-      var newAttempt = attempt + 1;
-      if (attempt > 10) {
-        throw e;
-      }
-      return sleep(50 << newAttempt).then(function () {
-        return self.poll(name, true, newAttempt);
-      });
+      return self.poll(name, true);
     });
+  }, function (e) {
+    var newAttempt = attempt + 1;
+    if (attempt > 10) {
+      throw e;
+    }
+    return sleep(50 << newAttempt).then(function () {
+      return self.poll(name, true, newAttempt);
+    });
+  });
+};
+PubSub.prototype.ack = function (ids, sub) {
+  if (!ids.length) {
+    return Promise.resolve(true);
+  }
+  return this.post(baseurl + sub + ':acknowledge', JSON.stringify({
+    ackIds: ids
+  }));
 };
 function sleep (number) {
   return new Promise(function (fullfill) {
