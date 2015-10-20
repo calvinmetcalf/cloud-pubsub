@@ -3,7 +3,6 @@ var Promise = require('bluebird');
 var auth = Promise.promisify(require('google-auth2-service-account').auth);
 var https = require('https');
 var scope = 'https://www.googleapis.com/auth/pubsub';
-var LRU = require('age-cache');
 var baseurl = 'https://pubsub.googleapis.com/v1/';
 var url = require('url');
 var inherits = require('inherits');
@@ -17,10 +16,6 @@ function PubSub(config){
   this.project = config.project;
   this.key = config.key;
   this.email = config.email;
-  this.cache = new LRU({
-    max: 500,
-    maxAge: 1800 * 1000
-  });
   this.topic = config.topic || 'pubsub';
   this.subscriptions = {};
   this.topics = {};
@@ -48,9 +43,6 @@ function PubSub(config){
 PubSub.prototype.auth = function () {
   var self = this;
   return new Promise(function(resolve, reject){
-    if (self.cache.has(self.email)) {
-      return resolve(self.cache.get(self.email));
-    }
     auth(self.key, {
       iss: self.email,
       scope: scope
@@ -58,7 +50,6 @@ PubSub.prototype.auth = function () {
       if (err) {
         return reject(err);
       }
-      self.cache.set(self.email, resp);
       resolve(resp);
     });
   });

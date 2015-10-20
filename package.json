@@ -9,7 +9,6 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "age-cache": "^1.0.0",
     "bluebird": "^2.9.12",
     "google-auth2-service-account": "0.0.5",
     "inherits": "^2.0.1"
